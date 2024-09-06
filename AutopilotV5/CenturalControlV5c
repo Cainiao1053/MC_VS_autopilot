@@ -1,1 +1,823 @@
+mod = peripheral.find("modem");
+mod.open(224);
+rednet.open("back"); --modem portal
+mon1 = peripheral.wrap("left");
+v0 = 0; --speed of the last iteration
+MODE = 0; --set flight sections of taking off, pin-flying and landing
+htgt = 0; --target height
+yaw0 = 0; 
+pitch0 = 0;
+roll0 = 0;
+axs = 0;
+axstgt = 0;
+pi = math.pi;
+LANDED = 0; --Landed or not
+vhor = 0;
+vtgtdat = 75; --velocity datum
+vlanding = 70;
+vtgt = vtgtdat;
+cptnum1 = 22; --computer numbers
+cptnum2 = 23;
+maxspeed = 900;
+minspeed = 65;
 
+cruiseheight = 270;
+landextensn = 1200; --distance before landing
+pitchmax = 7;
+
+t = 0;
+t0 = 0;
+
+xfree = {}
+zfree = {}
+freepoint = 1;
+freepointAdd = 0;
+
+Route = {};
+rawFreePoint = {};
+
+aptfl = io.open("Airports.lua","r");
+aptflext = io.type(aptfl); --check if airport file exists
+if aptfl == nil then
+    aptfl = io.open("Airports.lua","w")  --initialization of airport file
+    aptfl:write("Airport Name\n");
+    aptfl:write("x axis\n");
+    aptfl:write("z axis\n");
+    aptfl:write("y axis\n");
+    aptfl:write("direction from N S E W");
+    aptfl:close();
+    else
+        aptfl:close();
+end
+
+routeList = io.open("RouteList.lua","r");
+routeListExit = io.type(routeList); --check if airport file exists
+if routeList == nil then
+    routeList = io.open("RouteList.lua", "w+");
+    routeList:close();
+    else
+    routeList:close();
+end
+
+tab = {} --create a table for airport data
+cmpt = {};
+tmw,tmh = term.getSize();
+
+function DrawBackground()  -- function for GUI regen
+term.clear();
+paintutils.drawFilledBox(1,1,tmw,tmh,colors.white);
+paintutils.drawFilledBox(12,1,39,2,colors.blue);
+paintutils.drawLine(1,4,tmw,4,colors.orange);
+term.setBackgroundColor(colors.blue);
+term.setCursorPos(18,1);
+term.setTextColor(colors.orange);
+term.write("CAINIAO AIRLINE");
+term.setCursorPos(21,2);
+term.setTextColor(colors.red);
+term.write("ADVANCED");
+term.setBackgroundColor(colors.white);
+term.setTextColor(colors.black);
+end
+
+function ChangeCNum()  --change the numbers of the bearingcontrol and speedcontrol computers
+    while  type(newcnum1) ~= "number" or type(newcnum2) ~= "number" do  --check validity of inputs
+    CNum = io.open("ComputerNum.lua","w");
+    DrawBackground();
+    term.setCursorPos(8,5);
+    term.write("Please enter the first Computer Number");
+    term.setCursorPos(23,6);
+    newcnum1 = read();
+    term.setCursorPos(8,7);
+    term.write("Please enter the second Computer Number");
+    term.setCursorPos(23,8);
+    newcnum2 = read();
+    newcnum1 = tonumber(newcnum1);
+    newcnum2 = tonumber(newcnum2);
+    if type(newcnum1) == "number" and type(newcnum2) == "number" then
+        CNum:write(newcnum1);
+        CNum:write("\n");
+        CNum:write(newcnum2);
+        CNum:close();
+    else
+        term.setCursorPos(18,9);
+        term.write("Invalid Value");
+        sleep(1);
+    end
+end
+end
+
+CNum = io.open("ComputerNum.lua","r") --check if the computer file exists
+CNumext = type(CNum);
+if CNumext == "nil" then
+    ChangeCNum();
+else
+    CNum:close();
+end
+DrawBackground(); -- initialization page
+term.setCursorPos(9,4);
+term.setBackgroundColor(colors.orange);
+term.write("Press Any Button For Initialization");
+term.setBackgroundColor(colors.white);
+term.setCursorPos(15,5);
+term.write("Change Computer Numbers");
+term.setCursorPos(17,6);
+term.write("Open Airport Folder")
+evn,but,cursx,cursy = os.pullEvent("mouse_click"); --change computer number and airports for initialization
+if cursy == 5 then
+    ChangeCNum();
+elseif cursy == 6 then
+    shell.openTab("edit Airports.lua")
+    term.setCursorPos(11,7);
+    term.write("Press any key to confirm edition");
+    sleep(0.5);
+    evn,but,cursx,cursy = os.pullEvent("mouse_click");
+    cursy = -1;
+else
+end
+
+sleep(0.4);
+aptfl = io.open("Airports.lua","r");
+for line in io.lines("Airports.lua") do --import airport data
+table.insert(tab,line)
+end
+aptfl:close();
+
+CNum = io.open("ComputerNum.lua","r");
+for line in io.lines("ComputerNum.lua") do --import Computer Data
+    table.insert(cmpt,line)
+end
+CNum:close();
+cptnum1 = tonumber(cmpt[1]);
+cptnum2 = tonumber(cmpt[2]);
+
+page = 1;
+
+function WaypointGen(tab); --generate waypoints from airport position
+aptgen = nil;
+airportnum = #tab/5; -- number of airport
+while aptgen == nil do
+    for i = 5,16 do
+        term.setCursorPos(1,i);
+        term.clearLine();
+    end
+term.setTextColor(colors.white);
+term.setBackgroundColor(colors.lightBlue);
+term.setCursorPos(11,17);
+term.write("LAST");
+term.setTextColor(colors.white);
+term.setBackgroundColor(colors.lightBlue);
+term.setCursorPos(35,17);
+term.write("NEXT");
+term.setTextColor(colors.black);
+term.setBackgroundColor(colors.white);
+    for i=1,12 do
+        if tab[5*(i+12*(page-1))-4]==nil then
+            break
+        end
+        term.setCursorPos(24,i+4);
+        term.write(tab[5*(i+12*(page-1))-4]);
+    end
+evn,but,cursx,cursy = os.pullEvent("mouse_click"); --set values of airport in serial
+if cursy>=5 and cursy <=16 then
+cursy = cursy-4;
+if tab[5*(cursy+12*(page-1))-4]~=nil then
+aptgen = tab[5*(cursy+12*(page-1))-4];
+xgen = tonumber(tab[5*(cursy+12*(page-1))-3]);
+zgen = tonumber(tab[5*(cursy+12*(page-1))-2]);
+ygen = tonumber(tab[5*(cursy+12*(page-1))-1]);
+directiongen = tab[5*(cursy+12*(page-1))];
+page = 1;
+end
+elseif cursy == 17 and cursx >=35 and cursx<=39 then
+    if page <= math.floor(airportnum/12) then
+    page = page +1;
+    end
+elseif cursy == 17 and cursx >= 11 and cursx <= 15 then
+    if page > 1 then
+    page = page -1;
+    end
+end
+sleep(0.3);
+cursy = -1;
+end
+return aptgen, xgen, zgen, ygen, directiongen;
+end
+
+while DPTAPT == nil do --set departure
+DrawBackground();
+term.setCursorPos(16,4);
+term.setBackgroundColor(colors.orange);
+term.write("Select the Departure");
+term.setBackgroundColor(colors.white);
+DPTAPT,xdpt,zdpt,ydpt,directiondpt = WaypointGen(tab);
+sleep(0.3);
+end
+
+while DSTAPT == nil do --set destination before take off
+DrawBackground();
+term.setCursorPos(14,4);
+term.setBackgroundColor(colors.orange);
+term.write("Select your Destination");
+term.setBackgroundColor(colors.white);
+term.setCursorPos(18,3);
+term.write("From:");
+term.write(DPTAPT);
+DSTAPT,xdst,zdst,ydst,directiondst = WaypointGen(tab);
+if DSTAPT == DPTAPT then
+    DSTAPT = nil;
+    term.setCursorPos(10,4);
+    term.setBackgroundColor(colors.orange);
+    term.write("Please Select a Different Airport");
+    term.setBackgroundColor(colors.white);
+    sleep(1);
+end
+end
+
+if directiondpt =="S" then -- set the initial values for taking off and reach the first interval
+    x01 = xdpt;
+    z01 = zdpt + 300;
+    y01 = cruiseheight;
+    yawtgt01 = 0;
+elseif directiondpt =="N" then
+    x01 = xdpt;
+    z01 = zdpt - 300;
+    y01 = cruiseheight;
+    yawtgt01 = 180;
+elseif directiondpt =="E" then
+    x01 = xdpt + 300;
+    z01 = zdpt;
+    y01 = cruiseheight;
+    yawtgt01 = 90;
+elseif directiondpt =="W" then
+    x01 = xdpt - 300;
+    z01 = zdpt;
+    y01 = cruiseheight;
+    yawtgt01 = -90;
+end
+function GenDstPoints()
+if directiondst == "S" then --arrive FROM what direction
+    x03 = xdst;
+    z03 = zdst + landextensn;
+    y03 = ydst;
+    yawtgt03 = -180;
+elseif directiondst == "N" then --arrive FROM what direction
+    x03 = xdst;
+    z03 = zdst - landextensn;
+    y03 = ydst;
+    yawtgt03 = 0;
+elseif directiondst == "E" then --arrive FROM what direction
+    x03 = xdst + landextensn;
+    z03 = zdst;
+    y03 = ydst;
+    yawtgt03 = -90
+elseif directiondst == "W" then --arrive FROM what direction
+    x03 = xdst -landextensn;
+    z03 = zdst;
+    y03 = ydst;
+    yawtgt03 = 90;
+end
+end
+GenDstPoints();
+yawtgt = yawtgt01; --set initial target directions and coords
+xtgt = x01;
+htgt = y01;
+ztgt = z01;
+
+function ChangeHeight() --change height during flight
+    DrawBackground();
+    term.setCursorPos(13,4);
+    term.setBackgroundColor(colors.orange);
+    term.write("Please Enter the New Height");
+    term.setBackgroundColor(colors.white);
+    term.setCursorPos(23,5);
+    newcruiseheight = tonumber(read());
+    if type(newcruiseheight)=="number" and newcruiseheight >100 and newcruiseheight <420 then --limit variable type and range
+        cruiseheight = newcruiseheight;
+        htgt = cruiseheight;
+        term.setCursorPos(16,6);
+        term.write("Successfully Changed");
+        sleep(0.5)
+    else
+        term.setCursorPos(19,6);
+        term.write("Invalid value");
+        sleep(0.5);
+    end
+end
+
+function ChangeDest(); --change destination
+
+        newDSTAPT = nil;
+        DrawBackground();
+        term.setCursorPos(12,4);
+        term.setBackgroundColor(colors.orange);
+        term.write("Select your new Destination");
+        term.setBackgroundColor(colors.white);
+        newDSTAPT,newxdst,newzdst,newydst,newdirectiondst = WaypointGen(tab);
+        DrawBackground();
+        term.setCursorPos(16,4);
+        term.setBackgroundColor(colors.orange);
+        term.write("Confirm Your Change");
+        term.setBackgroundColor(colors.white);
+        term.setCursorPos(24,5);
+        term.write("YES");
+        term.setCursorPos(22,6);
+        term.write("WITHDRAW");
+        cursy = -1;
+    while cursy ~= 5 and cursy ~= 6 do --change confirmation
+        evn,but,cursx,cursy = os.pullEvent("mouse_click");
+        if cursy == 5 then
+            DSTAPT = newDSTAPT;
+            xdst = newxdst;
+            zdst = newzdst;
+            ydst = newydst;
+            directiondst = newdirectiondst;
+            GenDstPoints();
+            DrawBackground();
+            term.setCursorPos(17,4);
+            term.setBackgroundColor(colors.orange);
+            term.write("Successfully Changed");
+            term.setBackgroundColor(colors.white);
+        elseif cursy == 6 then
+            DrawBackground();
+            term.setCursorPos(21,4);
+            term.setBackgroundColor(colors.orange);
+            term.write("Canceled");
+            term.setBackgroundColor(colors.white);
+        end
+        sleep(0.5);
+    end
+end
+
+function FreeFlightSelect()  --free fly Select
+    DrawBackground();
+    term.setCursorPos(16,4);
+    term.setBackgroundColor(colors.orange);
+    term.write("Free Flight Selector");
+    term.setBackgroundColor(colors.white);
+    term.setCursorPos(17,5);
+    term.write("Enter the x target")
+    term.setCursorPos(23,6);
+    newxf = tonumber(read());
+    term.setCursorPos(17,7);
+    term.write("Enter the z target")
+    term.setCursorPos(23,8);
+    newzf = tonumber(read());
+    term.setCursorPos(19,9);
+    term.write("Click to Confirm");
+    term.setCursorPos(15,10);
+    term.write("Click to Ignore Changes");
+    cursy = -1;
+    xfreeSelected = nil;
+    zfreeSelected = nil;
+    evn,but,cursx,cursy = os.pullEvent("mouse_click");
+    if cursy == 9 then
+        if type(newxf) == "number" and type(newzf) == "number" then
+            xfreeSelected = newxf;
+            zfreeSelected = newzf;
+            DrawBackground();
+            term.setCursorPos(9,4);
+            term.setBackgroundColor(colors.orange);
+            term.write("Successfully changed to freeflight");
+            term.setBackgroundColor(colors.white);
+        else
+            DrawBackground();
+            term.setCursorPos(19,4);
+            term.setBackgroundColor(colors.orange);
+            term.write("Invalid Values");
+            term.setBackgroundColor(colors.white);
+        end
+    else
+        newxf = nil;
+        newzf = nil;
+        DrawBackground();
+        term.setCursorPos(18,4);
+        term.setBackgroundColor(colors.orange);
+        term.write("Change Withdrew");
+        term.setBackgroundColor(colors.white);
+    end
+    sleep(0.3);
+    cursy = -1;
+end
+
+function FreeFlight()
+    DrawBackground()
+    term.setCursorPos(15,4);
+    term.setBackgroundColor(colors.orange);
+    term.write("Free Flight Navigator");
+    term.setBackgroundColor(colors.white);
+    term.setCursorPos(20,5);
+    term.write("Add Points");
+    term.setCursorPos(19,6);
+    term.write("Select Route");
+    term.setCursorPos(19,7);
+    term.write("Add a Route");
+    term.setCursorPos(19,8);
+    term.write("Remove Point");
+    term.setCursorPos(19,9);
+    term.write("List Points");
+    cursy = -1;
+    evn,but,cursx,cursy = os.pullEvent("mouse_click");
+    if cursy == 5 then
+        FreeFlightSelect()
+        if xfreeSelected ~=nil and zfreeSelected ~= nil then
+            freepointAdd = freepointAdd + 1;
+            xfree[freepointAdd] = xfreeSelected;
+            zfree[freepointAdd] = zfreeSelected;
+            MODE = 3;
+        end
+    elseif cursy == 6 then
+        page = 1;
+        quit = 0;
+        Route = {};
+        routeList = io.open("RouteList.lua", "r");
+        for lines in io.lines("RouteList.lua") do
+            table.insert(Route,lines);
+        end
+        routeNum = #Route;
+        while quit == 0 do
+            DrawBackground()
+            term.setTextColor(colors.white);
+            term.setBackgroundColor(colors.lightBlue);
+            term.setCursorPos(11,17);
+            term.write("LAST");
+            term.setTextColor(colors.white);
+            term.setBackgroundColor(colors.lightBlue);
+            term.setCursorPos(35,17);
+            term.write("NEXT");
+            term.setTextColor(colors.black);
+            term.setBackgroundColor(colors.white);
+            for i=1,12 do
+                if Route[i+12*(page-1)]==nil then
+                    break
+                end
+                term.setCursorPos(24,i+4);
+                term.write(Route[i+12*(page-1)]);
+            end
+            evn,but,cursx,cursy = os.pullEvent("mouse_click");
+            if cursy>=5 and cursy<=16 then
+                if Route[cursy+12*(page-1)-4]~=nil then
+                    openRoute = io.open(Route[cursy+12*(page-1)-4],"r");
+                    j = 1;
+                    for lines in io.lines(Route[cursy+12*(page-1)-4]) do
+                        rawFreePoint[j] = lines;
+                        j = j + 1;
+                    end
+                    j = 1;
+                    freepointAdd = #rawFreePoint/2;
+                    for i = 1, freepointAdd do
+                        xfree[i] = rawFreePoint[2*i-1];
+                        zfree[i] = rawFreePoint[2*i];
+                    end
+                    MODE = 3;
+                    freepoint = 1;
+                    quit = 1;
+                    DrawBackground()
+                    term.setCursorPos(17,5);
+                    term.write("Start the Route");
+                else
+                    DrawBackground()
+                    term.setCursorPos(17,5);
+                    term.write("Route not Found");
+                    quit = 1;
+                end
+                sleep(0.2)
+            elseif cursy == 17 then
+                if cursx>=11 and cursx<=15 then
+                    if page>1 then
+                        page = page - 1;
+                    end
+                elseif cursx>=35 and cursx<=39 then
+                    if page<=math.floor(routeNum/12) then
+                        page = page + 1
+                    end
+                end
+            end
+        end
+    elseif cursy == 7 then
+            quitadding = 0;
+            DrawBackground();
+            term.setCursorPos(15,4);
+            term.setBackgroundColor(colors.orange);
+            term.write("Enter the Route Name");
+            term.setBackgroundColor(colors.white);
+            term.setCursorPos(18,5);
+            newName = read();
+            if newName~= nil and type(newName)=="string" then
+                routeFile = io.open(newName,"w");
+                RoutePoint = 1;
+                while quitadding == 0 do
+                    DrawBackground()
+                    term.setBackgroundColor(colors.orange);
+                    term.setCursorPos(15,4);
+                    term.write("Adding Route: "..newName);
+                    term.setBackgroundColor(colors.white);
+                    term.setCursorPos(19,5);
+                    term.write("Enter X Axis");
+                    term.setCursorPos(23,6);
+                    newRouteX = tonumber(read());
+                    term.setCursorPos(19,7);
+                    term.write("Enter Z Axis");
+                    term.setCursorPos(23,8);
+                    newRouteZ = tonumber(read());
+                    if type(newRouteX)=="number" and type(newRouteZ)=="number" then
+                        routeFile:write(newRouteX.."\n");
+                        routeFile:write(newRouteZ.."\n");
+                    else
+                        term.setCursorPos(19,8);
+                        term.write("Invalid Value")
+                        sleep(0.5);
+                    end
+                    term.setCursorPos(18,9);
+                    term.write("Add Next Point")
+                    term.setCursorPos(22,10);
+                    term.write("Finish")
+                    evn,but,cursx,cursy = os.pullEvent("mouse_click");
+                    if cursy == 9 then
+                    elseif cursy == 10 then
+                        routeList = io.open("RouteList.lua","a");
+                        routeList:write(newName.."\n")
+                        routeList:close();
+                        quitadding = 1;
+                        term.setCursorPos(23,11);
+                        term.write("Done");
+                    end
+                end
+                routeFile:close();
+            else
+                term.setCursorPos(19,6);
+                term.write("Invalid Name");
+                sleep(0.5);
+            end
+    elseif cursy == 8 then
+        if freepointAdd>freepoint then
+            xfree[freepointAdd] = nil;
+            zfree[freepointAdd] = nil;
+            freepointAdd = freepointAdd - 1;
+            DrawBackground();
+            term.setCursorPos(13,6);
+            term.write("Removed the latest point")
+        else
+            DrawBackground();
+            term.setCursorPos(17,6);
+            term.write("Not Applicapable")
+        end
+    elseif cursy == 9 then
+        DrawBackground()
+        if MODE == 3 then
+        for i = freepoint, freepointAdd do
+            term.setCursorPos(18,i-freepoint + 5);
+            term.write("X:"..xfree[i].." Z:"..zfree[i]);
+        end
+        evn,but,cursx,cursy = os.pullEvent("mouse_click");
+    else
+        term.setCursorPos(14,5);
+        term.write("Freemode Not Activated");
+        sleep(0.3)
+    end
+    end
+    cursy = -1;
+    sleep(0.2);
+end
+
+function ChangeSpeed() --change speed
+    DrawBackground();
+    term.setCursorPos(16,3);
+    term.write("Max: ");
+    term.write(maxspeed);
+    term.write(" ");
+    term.write("Min: ");
+    term.write(minspeed);
+    term.setCursorPos(9,4);
+    term.setBackgroundColor(colors.orange);
+    term.write("Please Enter your new speed in Km/h");
+    term.setBackgroundColor(colors.white);
+    term.setCursorPos(23,5);
+    newspeed = tonumber(read());
+    if type(newspeed) == "number" and newspeed<=maxspeed and newspeed>=minspeed then
+        vtgtdat = newspeed;
+        DrawBackground();
+        term.setCursorPos(16,4);
+        term.setBackgroundColor(colors.orange);
+        term.write("Successfully Changed");
+        term.setBackgroundColor(colors.white);
+    else
+        DrawBackground();
+        term.setCursorPos(19,4);
+        term.setBackgroundColor(colors.orange);
+        term.write("Invalid Value");
+        term.setBackgroundColor(colors.white);
+    end
+    sleep(0.5);
+end
+
+function FlyingPanel() --GUI during flight
+    while true do
+    DrawBackground();
+    term.setCursorPos(12,3);
+    term.write("From: ");
+    term.write(DPTAPT);
+    term.write(" ");
+    term.write("To: ");
+    term.write(DSTAPT);
+    term.setCursorPos(14,4);
+    term.setBackgroundColor(colors.orange);
+    term.write("FREEMODE: ");
+    if MODE == 3 then --display free fly mode or not
+        term.write("ON ");
+        term.write("X: ");
+        term.write(xfree[freepoint]);
+        term.write(" ");
+        term.write("Z: ");
+        term.write(zfree[freepoint]);
+    else
+        term.write("OFF")
+    end
+    term.setBackgroundColor(colors.white);
+    term.setCursorPos(19,5);
+    term.write("Change Height");
+    term.setCursorPos(17,6);
+    term.write("Change Destination");
+    term.setCursorPos(17,7);
+    term.write("Free Flying to Spot");
+    term.setCursorPos(19,8);
+    term.write("Change Speed");
+    term.setCursorPos(17,9);
+    term.write("Back to Destination"); --change from freemode back to navigation
+    term.setCursorPos(22,10)
+    term.write("Refresh")
+    cursyp = -1;
+    while cursyp <5 or cursyp >10 do
+    evn,but,cursxp,cursyp = os.pullEvent("mouse_click");
+    if cursyp == 5 then
+    ChangeHeight();
+    elseif cursyp == 6 then
+    ChangeDest();
+    elseif cursyp == 7 then
+    FreeFlight();
+    break
+    elseif cursyp == 8 then
+    ChangeSpeed();
+    elseif cursyp == 9 then
+        if MODE == 3 then
+            MODE = 1;
+            freepoint = 1;
+            freepointAdd = 0;
+            xfree = {};
+            zfree = {};
+            DrawBackground()
+            term.setCursorPos(10,4);
+            term.setBackgroundColor(colors.orange);
+            term.write("Changed Back to Normal Navigation");
+            term.setBackgroundColor(colors.white);
+        else
+            DrawBackground()
+            term.setCursorPos(18,4);
+            term.setBackgroundColor(colors.orange);
+            term.write("Not Applicapable");
+            term.setBackgroundColor(colors.white);
+        end
+    elseif cursyp == 10 then
+        break
+    else
+        sleep(1);
+    end
+    end
+sleep(1);
+end
+end
+
+function MainThread() --main function of flying control and navigation
+while true do
+t = os.clock();
+T = t - t0;
+t0 = t;  
+spd = ship.getVelocity();
+vx = spd.x; --m/s
+vy = spd.y;
+vz = spd.z;
+v = math.sqrt(spd.x^2+spd.y^2+spd.z^2);
+v = v*3.6;--ship speed in km/h
+a = (v-v0)/T; --acceleration
+v0 = v;
+pos = ship.getWorldspacePosition();
+posx = pos.x;
+posz = pos.z;
+h = pos.y;
+Q = ship.getQuaternion();
+w = Q.w;
+x = Q.z;
+y = Q.x;
+z = Q.y;
+roll = math.atan2(2*(w*x+y*z),(1-2*(x^2+y^2)));
+pitch = math.asin(2*(w*y-x*z));
+yaw = math.atan2(2*(w*z+x*y),(1-2*(y^2+z^2)));
+pitch = pitch*180/pi;
+yaw = yaw*180/pi;
+roll = roll*180/pi;
+omgr = (roll-roll0)/T;
+omgy = (yaw-yaw0)/T;
+omgp = (pitch-pitch0)/T;
+roll0 = roll;
+yaw0 = yaw;
+pitch0 = pitch;
+vtgt = vtgtdat;
+coefv = 12500/(25000+v^2)+0.5; --coef of velocity
+if (math.abs(posx-xdpt)+math.abs(posz-zdpt))>700 and MODE <2 then
+    MODE = 1;
+end
+if (math.abs(posx-x03)+math.abs(posz-z03))<150 and MODE ~= 3 then
+    MODE = 2;
+end
+if MODE == 3 then --freemode
+    if xfree[freepoint] ~= nil and (math.abs(xfree[freepoint]-posx)+math.abs(zfree[freepoint]-posz)) <100 then
+        freepoint = freepoint + 1;
+    end
+    if xfree[freepoint] ~= nil then
+    yawtgt = math.atan2((xfree[freepoint]-posx),(zfree[freepoint]-posz))*180/pi; --pin to the next point
+    else
+        MODE = 1;
+        freepoint = 1;
+        freepointAdd = 0;
+        xfree = {};
+        zfree = {};
+    end
+elseif MODE == 1 then --normal flight, 0 is taking off
+    yawtgt = math.atan2((x03-posx),(z03-posz))*180/pi; --pin to the next point
+elseif MODE == 2 then -- Landing mode
+    --htgt = y03;
+    if directiondst == "S" then
+        xtgt = xdst;
+        ztgt = posz - 100;
+        htgt = (cruiseheight - ydst)*(posz - zdst)^1.5/(landextensn^1.5) + y03;
+    elseif directiondst == "E" then
+        ztgt = zdst;
+        xtgt = posx - 100;
+        htgt = (cruiseheight - ydst)*(posx - xdst)^1.5/(landextensn^1.5) + y03;
+    elseif directiondst == "W" then
+        ztgt = zdst;
+        xtgt = posx + 100;
+        htgt = (cruiseheight - ydst)*(xdst - posx)^1.5/(landextensn^1.5) + y03;
+    elseif directiondst == "N" then
+        xtgt = xdst;
+        ztgt = posz + 100;
+        htgt = (cruiseheight - ydst)*(zdst - posz)^1.5/(landextensn^1.5) + y03;
+    end
+    yawtgt = math.atan2((xtgt-posx),(ztgt-posz))*180/pi; --pin to the next point
+    if htgt > -1000 then            -- I think you do dot understand this part, nor do I
+    else
+        htgt = y03-2;
+    end
+    if (h-htgt) ~=0 then
+    vtgt = vlanding - (h-htgt)/math.sqrt(math.abs(h-htgt));
+    end
+    if vtgt >(vlanding + 5) then
+        vtgt = vlanding + 5;
+    elseif vtgt <(vlanding - 5) then
+        vtgt = vlanding - 5;
+    end
+end
+ydiff = yawtgt - yaw; --Yaw difference set ccw positive
+if ydiff>180 then
+    ydiff = ydiff - 360;
+elseif ydiff<-180 then
+    ydiff = ydiff + 360;
+end
+    rdiff = -(ydiff/2 + omgy*ydiff^2/1800); --difference of roll
+if rdiff>25*coefv then
+    rdiff = 25*coefv;
+elseif rdiff<-25*coefv then
+    rdiff = -25*coefv;
+end
+pdiff = (h-htgt)/2+vy*(h-htgt)^2/60000; --pitch changes
+if pdiff>15*coefv then
+    pdiff = 15*coefv;
+elseif pdiff<-18*coefv then
+    pdiff = -18*coefv;
+end
+if (math.abs(posx - xdst) + math.abs(posz - zdst))<10 then
+    LANDED = 1;
+end
+mon1.clear();
+vsent = string.format("%.1f",v);
+psent = string.format("%.1f",pitch);
+rsent = string.format("%.1f",roll);
+ysent = string.format("%.1f",yaw);
+mon1.setCursorPos(1,1);
+mon1.write("V:");
+mon1.write(vsent);
+mon1.setCursorPos(1,2);
+mon1.write("P:");
+mon1.write(psent);
+mon1.setCursorPos(1,3);
+mon1.write("R:");
+mon1.write(rsent);
+mon1.setCursorPos(1,4);
+mon1.write("Y:");
+mon1.write(ysent);
+str = {rdiff,pdiff,LANDED,vtgt};
+rednet.send(cptnum1,str);
+rednet.send(cptnum2,str);
+sleep(0.1);
+end
+end
+parallel.waitForAny(MainThread,FlyingPanel)

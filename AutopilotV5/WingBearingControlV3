@@ -1,0 +1,83 @@
+mod = peripheral.find("modem");
+mod.open(224);
+rednet.open("top");
+pi = math.pi;
+r0 = 0; --set a value to record roll value of the previous iteration
+p0 = 0; -- set pitch from previous iteration
+cmd = {};
+rcmd = 0;
+pcmd = 0;
+t = 0;
+t0 = 0;
+
+iner = ship.getMomentOfInertiaTensor(); --get inertia
+n1 = 26; -- number of flaps for roll
+n2 = 36; --sum of flaps for pitch
+C1 = 11091;
+C2 = 6906;
+l1 = 12.5;
+l2 = 14.5;
+coefr = iner[3][3]/(C1*(n1*l1));
+coefp = iner[1][1]/(C2*(n2*l2));
+
+
+while true do
+t = os.clock();
+T = t-t0;
+t0 = t;
+Q = ship.getQuaternion(); --ship Quaternion
+w = Q.w;
+x = Q.z;
+y = Q.x;
+z = Q.y;
+r = math.atan2(2*(w*x+y*z),(1-2*(x^2+y^2))); --roll, ship should be assembled to the south
+p = math.asin(2*(w*y-x*z)); --pitch
+y = math.atan2(2*(w*z+x*y),(1-2*(y^2+z^2))); --yaw
+p = p*180/pi;
+y = y*180/pi;
+r = r*180/pi;
+romg = (r-r0)/T; --angular velocity
+r0 = r; --update r0
+pomg = (p-p0)/T; -- angular velocity
+p0 = p; --update
+spd = ship.getVelocity();
+v = math.sqrt(spd.x^2+spd.y^2+spd.z^2);
+v = v*3.6;--ship speed
+coefv = 15000/(15000+v^2) + 0.1; --coefficient of velocity
+id,cmd = rednet.receive(nil, 0.1);
+if cmd ~= nil then
+    rcmd = cmd[1];
+    pcmd = cmd[2];
+end
+if redstone.getInput("bottom") == true then
+    rcmd = 0;
+    pcmd = 0;
+end
+rollout = -coefr*coefv*(0.9*(r-rcmd)+((r-rcmd)^2*romg/100000)); --algorithm for roll, output the redstone target analog
+pitchout = -coefp*coefv*(0.9*(p-pcmd)+((p-pcmd)^2*pomg/190000))*((90-math.abs(r))/90); --algorithm
+if rollout<-15 then --redstone analog bound
+    rollout = -15;
+    elseif rollout>15 then
+    rollout =15;
+end
+if pitchout<-15 then --output bound
+    pitchout = -15;
+    elseif pitchout>13 then
+    pitchout =13;
+end
+redstone.setAnalogOutput("left", 0); -- clear the previous output
+redstone.setAnalogOutput("right", 0);
+if rollout<0 then --set outputs
+    redstone.setAnalogOutput("left", math.abs(rollout)); --turn left
+elseif rollout>0 then
+    redstone.setAnalogOutput("right", rollout); --turn right
+end
+redstone.setAnalogOutput("front", 0); 
+redstone.setAnalogOutput("back", 0);
+if pitchout<0 then --set output
+    redstone.setAnalogOutput("back", math.abs(pitchout)); --lift up
+elseif pitchout>0 then
+    redstone.setAnalogOutput("front", pitchout); --push down
+end
+
+end
